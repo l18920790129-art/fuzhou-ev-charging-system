@@ -1,0 +1,10 @@
+*.pyc
+__pycache__/
+*.sqlite3
+.env
+media/
+chroma_db/
+knowledge_base/chroma_db/
+*.log
+.DS_Store
+node_modules/

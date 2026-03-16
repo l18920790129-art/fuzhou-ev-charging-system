@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>福州充电桩智能选址系统</title>
+  {% load static %}
+  <!-- 高德地图 JS API -->
+  <script src="https://webapi.amap.com/maps?v=2.0&key=283b21e285a807bf7bda4cf43e838a26&plugin=AMap.HeatMap,AMap.Scale,AMap.ToolBar,AMap.Geocoder,AMap.PlaceSearch"></script>
+  <!-- Marked.js for markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- ECharts for knowledge graph -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="{% static 'css/main.css' %}">
+</head>
+<body>
+  <!-- ========== 顶部导航 ========== -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-text">福州充电桩智能选址系统</span>
+      </div>
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-tab="map">🗺️ 地图选址</button>
+        <button class="nav-tab" data-tab="heatmap">🔥 流量热力图</button>
+        <button class="nav-tab" data-tab="analysis">🤖 AI分析</button>
+        <button class="nav-tab" data-tab="knowledge">🕸️ 知识图谱</button>
+        <button class="nav-tab" data-tab="memory">🧠 历史记忆</button>
+        <button class="nav-tab" data-tab="report">📄 选址报告</button>
+      </nav>
+    </div>
+    <div class="header-right">
+      <div class="session-info">
+        <span class="session-label">会话ID：</span>
+        <span class="session-id" id="sessionId">加载中...</span>
+      </div>
+      <button class="btn-icon" id="btnClearMemory" title="清除记忆">🗑️</button>
+    </div>
+  </header>
+
+  <!-- ========== 主内容区 ========== -->
+  <main class="main-content">
+
+    <!-- ===== Tab: 地图选址 ===== -->
+    <div class="tab-panel active" id="tab-map">
+      <div class="panel-layout">
+        <!-- 地图区域 -->
+        <div class="map-container">
+          <div id="amap" class="amap-box"></div>
+          <!-- 地图工具栏 -->
+          <div class="map-toolbar">
+            <button class="map-btn active" id="btnSelectMode" title="选点模式">📍 选点</button>
+            <button class="map-btn" id="btnShowPOI" title="显示POI">🏪 POI</button>
+            <button class="map-btn" id="btnShowExclusion" title="显示禁止区域">🚫 禁区</button>
+            <button class="map-btn" id="btnShowExisting" title="已有充电站">🔌 现有站</button>
+            <button class="map-btn" id="btnClearMarkers" title="清除标记">🧹 清除</button>
+          </div>
+          <!-- 图例 -->
+          <div class="map-legend">
+            <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>禁止区域</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>候选位置</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#10b981"></span>已有充电站</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span>POI点位</div>
+          </div>
+        </div>
+
+        <!-- 右侧信息面板 -->
+        <div class="info-panel">
+          <!-- 选点信息 -->
+          <div class="card" id="locationCard">
+            <div class="card-header">
+              <span class="card-icon">📍</span>
+              <span class="card-title">当前选点</span>
+              <span class="status-badge" id="locationStatus">未选择</span>
+            </div>
+            <div class="card-body" id="locationInfo">
+              <p class="hint-text">点击地图选择充电桩候选位置<br>系统将自动避开水域、林地等禁止区域</p>
+            </div>
+          </div>
+
+          <!-- 快速评分 -->
+          <div class="card" id="quickScoreCard" style="display:none">
+            <div class="card-header">
+              <span class="card-icon">⭐</span>
+              <span class="card-title">快速评分</span>
+            </div>
+            <div class="card-body">
+              <div class="score-main">
+                <div class="score-circle" id="scoreCircle">
+                  <span class="score-value" id="scoreValue">--</span>
+                  <span class="score-unit">/10</span>
+                </div>
+                <div class="score-grade" id="scoreGrade">--</div>
+              </div>
+              <div class="score-details" id="scoreDetails"></div>
+            </div>
+          </div>
+
+          <!-- 周边POI -->
+          <div class="card" id="poiCard" style="display:none">
+            <div class="card-header">
+              <span class="card-icon">🏪</span>
+              <span class="card-title">周边POI</span>
+              <span class="badge" id="poiCount">0</span>
+            </div>
+            <div class="card-body">
+              <div class="poi-list" id="poiList"></div>
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="action-buttons" id="actionButtons" style="display:none">
+            <button class="btn btn-primary" id="btnDeepAnalysis">
+              🤖 AI深度分析
+            </button>
+            <button class="btn btn-secondary" id="btnGenerateReport">
+              📄 生成报告
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Tab: 热力图 ===== -->
+    <div class="tab-panel" id="tab-heatmap">
+      <div class="panel-layout">
+        <div class="map-container">
+          <div id="heatmap-container" class="amap-box"></div>
+          <div class="map-toolbar">
+            <button class="map-btn active" id="btnHeatmapFlow">🔥 流量热力</button>
+            <button class="map-btn" id="btnHeatmapEV">⚡ EV流量</button>
+            <button class="map-btn" id="btnShowRoads">🛣️ 主干道</button>
+          </div>
+        </div>
+        <div class="info-panel">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">🔥</span>
+              <span class="card-title">主干道流量统计</span>
+            </div>
+            <div class="card-body">
+              <div class="road-stats" id="roadStats">
+                <div class="loading-spinner">加载中...</div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">📊</span>
+              <span class="card-title">流量分级说明</span>
+            </div>
+            <div class="card-body">
+              <div class="heatmap-legend">
+                <div class="heat-level"><span class="heat-bar high"></span><span>极高流量 (&gt;60000辆/日)</span></div>
+                <div class="heat-level"><span class="heat-bar medium-high"></span><span>高流量 (40000-60000辆/日)</span></div>
+                <div class="heat-level"><span class="heat-bar medium"></span><span>中等流量 (20000-40000辆/日)</span></div>
+                <div class="heat-level"><span class="heat-bar low"></span><span>低流量 (&lt;20000辆/日)</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Tab: AI分析 ===== -->
+    <div class="tab-panel" id="tab-analysis">
+      <div class="analysis-layout">
+        <!-- 左侧：Agent对话 -->
+        <div class="chat-panel">
+          <div class="chat-header">
+            <span class="chat-icon">🤖</span>
+            <span class="chat-title">LangChain Agent 智能分析</span>
+            <div class="agent-status" id="agentStatus">
+              <span class="status-dot idle"></span>
+              <span>就绪</span>
+            </div>
+          </div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="message system-message">
+              <div class="message-content">
+                <p>👋 您好！我是福州充电桩智能选址助手。</p>
+                <p>我集成了以下能力：</p>
+                <ul>
+                  <li>📚 <strong>RAG知识检索</strong>：基于专业选址规范和案例库</li>
+                  <li>🕸️ <strong>知识图谱推理</strong>：分析POI、道路、区域关联关系</li>
+                  <li>📊 <strong>实时数据分析</strong>：福州市POI和交通流量数据</li>
+                  <li>🧠 <strong>长期记忆</strong>：记住您的历史分析偏好</li>
+                </ul>
+                <p>您可以在地图上选点后点击"AI深度分析"，或直接在此输入问题。</p>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <div class="chat-input-row">
+              <textarea class="chat-input" id="chatInput" placeholder="输入问题，例如：分析五四路沿线的充电桩需求..." rows="2"></textarea>
+              <button class="btn-send" id="btnSend">发送</button>
+            </div>
+            <div class="chat-quick-btns">
+              <button class="quick-btn" onclick="sendQuickMsg('福州哪些区域充电桩需求最高？')">需求分析</button>
+              <button class="quick-btn" onclick="sendQuickMsg('充电桩选址有哪些规范要求？')">选址规范</button>
+              <button class="quick-btn" onclick="sendQuickMsg('鼓楼区适合建充电桩的位置有哪些？')">区域推荐</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧：分析过程展示 -->
+        <div class="analysis-detail-panel">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">🔧</span>
+              <span class="card-title">Agent工具调用记录</span>
+            </div>
+            <div class="card-body">
+              <div class="tool-calls" id="toolCallsLog">
+                <p class="hint-text">Agent分析时将在此展示工具调用过程...</p>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">📚</span>
+              <span class="card-title">RAG检索结果</span>
+            </div>
+            <div class="card-body">
+              <div class="rag-results" id="ragResults">
+                <p class="hint-text">知识库检索结果将在此展示...</p>
+              </div>
+            </div>
+          </div>
+          <!-- 当前分析任务状态 -->
+          <div class="card" id="taskStatusCard" style="display:none">
+            <div class="card-header">
+              <span class="card-icon">⏳</span>
+              <span class="card-title">分析任务状态</span>
+            </div>
+            <div class="card-body" id="taskStatusBody"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Tab: 知识图谱 ===== -->
+    <div class="tab-panel" id="tab-knowledge">
+      <div class="knowledge-layout">
+        <div class="kg-container">
+          <div class="kg-toolbar">
+            <button class="map-btn active" id="btnKGAll">全部节点</button>
+            <button class="map-btn" id="btnKGPOI">POI类型</button>
+            <button class="map-btn" id="btnKGRoad">道路等级</button>
+            <button class="map-btn" id="btnKGDistrict">行政区</button>
+          </div>
+          <div id="knowledgeGraph" class="kg-chart"></div>
+        </div>
+        <div class="kg-info-panel">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">🕸️</span>
+              <span class="card-title">知识图谱说明</span>
+            </div>
+            <div class="card-body">
+              <p class="kg-desc">知识图谱展示了充电桩选址相关实体及其关联关系，包括：</p>
+              <div class="kg-legend">
+                <div class="kg-node-type"><span class="kg-dot" style="background:#3b82f6"></span>POI类型节点</div>
+                <div class="kg-node-type"><span class="kg-dot" style="background:#10b981"></span>道路等级节点</div>
+                <div class="kg-node-type"><span class="kg-dot" style="background:#f59e0b"></span>行政区节点</div>
+                <div class="kg-node-type"><span class="kg-dot" style="background:#8b5cf6"></span>充电需求节点</div>
+                <div class="kg-node-type"><span class="kg-dot" style="background:#ef4444"></span>影响因素节点</div>
+              </div>
+            </div>
+          </div>
+          <div class="card" id="kgNodeDetail" style="display:none">
+            <div class="card-header">
+              <span class="card-icon">🔍</span>
+              <span class="card-title">节点详情</span>
+            </div>
+            <div class="card-body" id="kgNodeDetailBody"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Tab: 历史记忆 ===== -->
+    <div class="tab-panel" id="tab-memory">
+      <div class="memory-layout">
+        <div class="card memory-card">
+          <div class="card-header">
+            <span class="card-icon">🧠</span>
+            <span class="card-title">长期记忆系统</span>
+            <span class="badge" id="memoryCount">0条记录</span>
+          </div>
+          <div class="card-body">
+            <div class="memory-stats" id="memoryStats"></div>
+            <div class="memory-timeline" id="memoryTimeline">
+              <div class="loading-spinner">加载历史记忆...</div>
+            </div>
+          </div>
+        </div>
+        <div class="card memory-card">
+          <div class="card-header">
+            <span class="card-icon">📍</span>
+            <span class="card-title">历史选址记录</span>
+          </div>
+          <div class="card-body">
+            <div class="location-history" id="locationHistory">
+              <div class="loading-spinner">加载选址历史...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Tab: 选址报告 ===== -->
+    <div class="tab-panel" id="tab-report">
+      <div class="report-layout">
+        <!-- 报告列表 -->
+        <div class="report-list-panel">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-icon">📋</span>
+              <span class="card-title">报告列表</span>
+              <button class="btn-sm" id="btnRefreshReports">刷新</button>
+            </div>
+            <div class="card-body">
+              <div class="report-list" id="reportList">
+                <div class="loading-spinner">加载中...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 报告详情 -->
+        <div class="report-detail-panel">
+          <div class="card" id="reportDetailCard">
+            <div class="card-header">
+              <span class="card-icon">📄</span>
+              <span class="card-title" id="reportTitle">选择报告查看详情</span>
+              <div class="report-actions" id="reportActions" style="display:none">
+                <button class="btn btn-primary btn-sm" id="btnDownloadPDF">⬇️ 下载PDF</button>
+              </div>
+            </div>
+            <div class="card-body" id="reportDetail">
+              <div class="report-placeholder">
+                <div class="placeholder-icon">📄</div>
+                <p>请在左侧选择报告，或在地图选点后生成新报告</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ========== 全局Loading遮罩 ========== -->
+  <div class="loading-overlay" id="loadingOverlay" style="display:none">
+    <div class="loading-box">
+      <div class="loading-spinner-large"></div>
+      <p id="loadingText">AI正在分析中...</p>
+      <div class="loading-steps" id="loadingSteps"></div>
+    </div>
+  </div>
+
+  <!-- ========== Toast通知 ========== -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>
