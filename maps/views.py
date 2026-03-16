@@ -185,3 +185,124 @@ def candidates_list(request):
     data = [{"id": c.id, "name": c.name, "lat": c.latitude, "lng": c.longitude,
              "status": c.status, "total_score": c.total_score, "address": c.address} for c in qs]
     return JsonResponse({"data": data})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def quick_score_location(request):
+    """快速评分：基于POI密度、交通流量、可达性、竞争分析"""
+    try:
+        body = json.loads(request.body)
+        lat = float(body.get('lat'))
+        lng = float(body.get('lng'))
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid parameters"}, status=400)
+
+    # 1. 检查禁止区域
+    zones = ExclusionZone.objects.all()
+    conflicts = []
+    for zone in zones:
+        dist = haversine(lat, lng, zone.center_lat, zone.center_lng)
+        if dist <= zone.radius_km:
+            conflicts.append({"name": zone.name, "type": zone.get_zone_type_display(), "distance_km": round(dist, 3)})
+
+    if conflicts:
+        return JsonResponse({
+            "is_valid": False,
+            "conflicts": conflicts,
+            "message": f"该位置位于禁止区域内：{conflicts[0]['name']}",
+            "total_score": 0
+        })
+
+    # 2. POI密度评分（2km范围内）
+    all_pois = POIData.objects.all()
+    nearby_pois = []
+    for p in all_pois:
+        dist = haversine(lat, lng, p.latitude, p.longitude)
+        if dist <= 2.0:
+            nearby_pois.append({
+                "id": p.id, "name": p.name, "category": p.category,
+                "category_display": p.get_category_display(),
+                "lat": p.latitude, "lng": p.longitude,
+                "ev_demand_score": p.ev_demand_score,
+                "distance_km": round(dist, 3)
+            })
+    nearby_pois.sort(key=lambda x: x['distance_km'])
+
+    poi_count = len(nearby_pois)
+    avg_ev_demand = sum(p['ev_demand_score'] for p in nearby_pois) / poi_count if poi_count > 0 else 0
+    poi_score = min(10.0, (poi_count / 8.0) * 5.0 + avg_ev_demand * 0.5)
+
+    # 3. 交通流量评分（3km范围内主干道）
+    all_roads = TrafficFlow.objects.all()
+    nearby_roads = []
+    for r in all_roads:
+        dist = haversine(lat, lng, r.center_lat, r.center_lng)
+        if dist <= 3.0:
+            nearby_roads.append({
+                "road_name": r.road_name, "road_level": r.road_level,
+                "daily_flow": r.daily_flow, "distance_km": round(dist, 3)
+            })
+    nearby_roads.sort(key=lambda x: x['distance_km'])
+
+    if nearby_roads:
+        max_flow = max(r['daily_flow'] for r in nearby_roads)
+        traffic_score = min(10.0, (max_flow / 60000.0) * 10.0)
+    else:
+        traffic_score = 3.0
+
+    # 4. 可达性评分（基于周边道路等级）
+    highway_count = sum(1 for r in nearby_roads if r['road_level'] in ['highway', 'expressway'])
+    main_road_count = sum(1 for r in nearby_roads if r['road_level'] == 'main_road')
+    accessibility_score = min(10.0, highway_count * 2.0 + main_road_count * 1.5 + 4.0)
+
+    # 5. 竞争分析（现有充电站数量）
+    from maps.models import CandidateLocation
+    existing_stations = CandidateLocation.objects.filter(status='approved')
+    competition_count = 0
+    for s in existing_stations:
+        dist = haversine(lat, lng, s.latitude, s.longitude)
+        if dist <= 1.5:
+            competition_count += 1
+    competition_score = max(0.0, 10.0 - competition_count * 2.5)
+
+    # 综合评分（加权平均）
+    total_score = round(
+        poi_score * 0.35 +
+        traffic_score * 0.30 +
+        accessibility_score * 0.20 +
+        competition_score * 0.15, 2
+    )
+
+    # 评级
+    if total_score >= 8.5:
+        rating = "优秀·强烈推荐"
+        rating_level = "excellent"
+    elif total_score >= 7.0:
+        rating = "良好·推荐"
+        rating_level = "good"
+    elif total_score >= 5.5:
+        rating = "一般·可考虑"
+        rating_level = "fair"
+    else:
+        rating = "较差·不推荐"
+        rating_level = "poor"
+
+    return JsonResponse({
+        "is_valid": True,
+        "lat": lat, "lng": lng,
+        "total_score": total_score,
+        "rating": rating,
+        "rating_level": rating_level,
+        "score_breakdown": {
+            "poi_density": round(poi_score, 2),
+            "traffic_flow": round(traffic_score, 2),
+            "accessibility": round(accessibility_score, 2),
+            "competition": round(competition_score, 2)
+        },
+        "nearby_pois": nearby_pois[:10],
+        "nearby_roads": nearby_roads[:5],
+        "poi_count": poi_count,
+        "road_count": len(nearby_roads),
+        "message": f"综合评分 {total_score}/10，{rating}"
+    })

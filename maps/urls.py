@@ -8,4 +8,5 @@ urlpatterns = [
     path('check/', views.check_location),
     path('heatmap/', views.heatmap_data),
     path('candidates/', views.candidates_list),
+    path('quick-score/', views.quick_score_location),
 ]
