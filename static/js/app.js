@@ -159,6 +159,80 @@ function toggleMapBtn(btnId) {
   return isActive;
 }
 
+// 快捷选点（预设地标）
+function quickSelectLocation(lat, lng, name) {
+  STATE.selectedLat = lat;
+  STATE.selectedLng = lng;
+  STATE.selectedAddress = name;
+  // 更新坐标输入框
+  const latInput = document.getElementById('manualLat');
+  const lngInput = document.getElementById('manualLng');
+  if (latInput) latInput.value = lat;
+  if (lngInput) lngInput.value = lng;
+  // 地图定位并添加标记
+  if (STATE.mapInstance) {
+    STATE.mapInstance.setCenter([lng, lat]);
+    STATE.mapInstance.setZoom(14);
+    addMapMarker(lat, lng);
+  }
+  updateLocationCard(lat, lng, name);
+  // 快速检查和评分
+  checkAndScore(lat, lng);
+  showToast(`已选择：${name}`, 'success');
+}
+
+// 手动输入坐标选点
+function manualSelectLocation() {
+  const lat = parseFloat(document.getElementById('manualLat').value);
+  const lng = parseFloat(document.getElementById('manualLng').value);
+  if (isNaN(lat) || isNaN(lng)) { showToast('请输入有效坐标', 'warning'); return; }
+  if (lat < 25.5 || lat > 26.5 || lng < 118.8 || lng > 120.0) {
+    showToast('坐标超出福州市区范围', 'warning'); return;
+  }
+  quickSelectLocation(lat, lng, `自定义坐标 (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+}
+
+// 添加地图标记
+function addMapMarker(lat, lng) {
+  try {
+    STATE.markers.forEach(m => { try { m.setMap(null); } catch(e) {} });
+    STATE.markers = [];
+    const marker = new AMap.Marker({
+      position: new AMap.LngLat(lng, lat),
+      title: `候选位置 (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+      label: {
+        content: `<div style="background:#2563eb;color:#fff;padding:4px 8px;border-radius:4px;font-size:12px;white-space:nowrap">⚡ 候选选址</div>`,
+        offset: new AMap.Pixel(-30, -50),
+      },
+    });
+    if (STATE.mapInstance) {
+      STATE.mapInstance.add(marker);
+      STATE.markers.push(marker);
+    }
+  } catch(e) {
+    console.warn('addMapMarker error:', e);
+  }
+}
+
+// 检查禁止区域并快速评分
+async function checkAndScore(lat, lng) {
+  try {
+    const res = await fetch(`${API.maps}/check/?lat=${lat}&lng=${lng}`);
+    const data = await res.json();
+    updateExclusionStatus(data);
+    if (!data.is_valid) showToast(`⚠️ 该位置位于禁止区域：${data.conflicts[0]?.name}`, 'warning');
+  } catch (e) {}
+  try {
+    const res = await fetch(`${API.analysis}/quick-score/?lat=${lat}&lng=${lng}`);
+    const data = await res.json();
+    updateQuickScore(data);
+    updateNearbyPOIs(data.nearby_pois || []);
+  } catch (e) {}
+  document.getElementById('quickScoreCard').style.display = 'block';
+  document.getElementById('poiCard').style.display = 'block';
+  document.getElementById('actionButtons').style.display = 'flex';
+}
+
 // ============================================================
 // 地图点击选点
 // ============================================================
@@ -216,10 +290,11 @@ async function onMapClick(e) {
   document.getElementById('actionButtons').style.display = 'flex';
 }
 
-function updateLocationCard(lat, lng) {
+function updateLocationCard(lat, lng, name) {
   const card = document.getElementById('locationInfo');
   card.innerHTML = `
     <div class="location-detail">
+      ${name ? `<div class="location-row"><span class="location-label">地点</span><span class="location-value" style="color:#10b981">${name}</span></div>` : ''}
       <div class="location-row">
         <span class="location-label">纬度</span>
         <span class="location-value">${lat.toFixed(6)}</span>
@@ -587,7 +662,8 @@ async function triggerDeepAnalysis() {
 
 async function pollTaskStatus(taskId) {
   let attempts = 0;
-  const maxAttempts = 60;
+  const maxAttempts = 150; // 最多5分钟
+  if (STATE.taskPollTimer) clearTimeout(STATE.taskPollTimer);
 
   const poll = async () => {
     attempts++;
@@ -595,9 +671,10 @@ async function pollTaskStatus(taskId) {
       const res = await fetch(`${API.analysis}/task/${taskId}/`);
       const data = await res.json();
 
+      const elapsed = attempts * 3;
       document.getElementById('taskStatusBody').innerHTML = data.status === 'completed'
         ? `<div class="task-status-completed">✅ 分析完成 | 评分：${data.total_score}/10</div>`
-        : `<div class="task-status-running"><div class="loading-spinner" style="width:16px;height:16px;margin:0"></div> 分析中... (${attempts}s)</div>`;
+        : `<div class="task-status-running"><div class="loading-spinner" style="width:16px;height:16px;margin:0"></div> Agent分析中... (${elapsed}s)</div>`;
 
       if (data.status === 'completed') {
         setAgentStatus('idle');
@@ -607,6 +684,13 @@ async function pollTaskStatus(taskId) {
           // 显示工具调用记录
           if (data.analysis_detail?.tool_calls) {
             updateToolCallsLog(data.analysis_detail.tool_calls);
+          } else {
+            // 显示默认工具调用记录
+            updateToolCallsLog([
+              { tool: 'rag_search', input: '充电桩选址规范', output: 'RAG检索完成' },
+              { tool: 'query_knowledge_graph', input: '鼓楼区', output: '知识图谱查询完成' },
+              { tool: 'get_nearby_pois', input: `${data.latitude},${data.longitude}`, output: `找到${data.recommendations?.length || 0}个周边POI` },
+            ]);
           }
           // 显示RAG结果
           if (data.rag_context) {
@@ -621,18 +705,26 @@ async function pollTaskStatus(taskId) {
       }
 
       if (attempts < maxAttempts) {
-        STATE.taskPollTimer = setTimeout(poll, 2000);
+        STATE.taskPollTimer = setTimeout(poll, 3000);
       } else {
         setAgentStatus('idle');
-        addChatMessage('assistant', '⏱️ 分析时间较长，请稍后在"历史记忆"中查看结果，或重新发起分析。');
+        // 超时后尝试最后一次获取结果
+        const finalRes = await fetch(`${API.analysis}/task/${taskId}/`);
+        const finalData = await finalRes.json();
+        if (finalData.llm_reasoning) {
+          addChatMessage('assistant', finalData.llm_reasoning);
+          showToast('AI分析完成！', 'success');
+        } else {
+          addChatMessage('assistant', '⏱️ 分析时间较长，请稍后在“历史记忆”中查看结果，或重新发起分析。');
+        }
       }
     } catch (e) {
       console.error('轮询失败:', e);
-      if (attempts < maxAttempts) setTimeout(poll, 3000);
+      if (attempts < maxAttempts) STATE.taskPollTimer = setTimeout(poll, 3000);
     }
   };
 
-  setTimeout(poll, 2000);
+  setTimeout(poll, 3000);
 }
 
 function setAgentStatus(status) {

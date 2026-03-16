@@ -90,7 +90,7 @@ function initTabs() {
       if (tabName === 'knowledge') loadKnowledgeGraph();
       if (tabName === 'memory') loadMemory();
       if (tabName === 'report') loadReportList();
-      if (tabName === 'heatmap') setTimeout(() => STATE.heatmapInstance && STATE.heatmapInstance.setZoom(12), 100);
+      if (tabName === 'heatmap') { setTimeout(() => { if (STATE.heatmapInstance) { STATE.heatmapInstance.setZoom(12); STATE.heatmapInstance.setCenter([119.3034, 26.0756]); STATE.heatmapInstance.resize(); } }, 200); }
     });
   });
 
@@ -112,7 +112,7 @@ function initTabs() {
 // ============================================================
 function initMap() {
   const map = new AMap.Map('amap', {
-    zoom: 13,
+    zoom: 12,
     center: [119.3034, 26.0756],  // 福州市中心
     mapStyle: 'amap://styles/dark',
     features: ['bg', 'road', 'building', 'point'],
@@ -157,6 +157,80 @@ function toggleMapBtn(btnId) {
   const btn = document.getElementById(btnId);
   const isActive = btn.classList.toggle('active');
   return isActive;
+}
+
+// 快捷选点（预设地标）
+function quickSelectLocation(lat, lng, name) {
+  STATE.selectedLat = lat;
+  STATE.selectedLng = lng;
+  STATE.selectedAddress = name;
+  // 更新坐标输入框
+  const latInput = document.getElementById('manualLat');
+  const lngInput = document.getElementById('manualLng');
+  if (latInput) latInput.value = lat;
+  if (lngInput) lngInput.value = lng;
+  // 地图定位并添加标记
+  if (STATE.mapInstance) {
+    STATE.mapInstance.setCenter([lng, lat]);
+    STATE.mapInstance.setZoom(14);
+    addMapMarker(lat, lng);
+  }
+  updateLocationCard(lat, lng, name);
+  // 快速检查和评分
+  checkAndScore(lat, lng);
+  showToast(`已选择：${name}`, 'success');
+}
+
+// 手动输入坐标选点
+function manualSelectLocation() {
+  const lat = parseFloat(document.getElementById('manualLat').value);
+  const lng = parseFloat(document.getElementById('manualLng').value);
+  if (isNaN(lat) || isNaN(lng)) { showToast('请输入有效坐标', 'warning'); return; }
+  if (lat < 25.5 || lat > 26.5 || lng < 118.8 || lng > 120.0) {
+    showToast('坐标超出福州市区范围', 'warning'); return;
+  }
+  quickSelectLocation(lat, lng, `自定义坐标 (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+}
+
+// 添加地图标记
+function addMapMarker(lat, lng) {
+  STATE.markers.forEach(m => m.setMap(null));
+  STATE.markers = [];
+  const marker = new AMap.Marker({
+    position: [lng, lat],
+    icon: new AMap.Icon({
+      size: new AMap.Size(36, 36),
+      image: 'data:image/svg+xml;base64,' + btoa(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="16" fill="#2563eb" stroke="#fff" stroke-width="2"/>
+          <text x="18" y="23" text-anchor="middle" fill="white" font-size="16">⚡</text>
+        </svg>`),
+      imageSize: new AMap.Size(36, 36),
+    }),
+    offset: new AMap.Pixel(-18, -18),
+    title: `候选位置 (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+  });
+  marker.setMap(STATE.mapInstance);
+  STATE.markers.push(marker);
+}
+
+// 检查禁止区域并快速评分
+async function checkAndScore(lat, lng) {
+  try {
+    const res = await fetch(`${API.maps}/check/?lat=${lat}&lng=${lng}`);
+    const data = await res.json();
+    updateExclusionStatus(data);
+    if (!data.is_valid) showToast(`⚠️ 该位置位于禁止区域：${data.conflicts[0]?.name}`, 'warning');
+  } catch (e) {}
+  try {
+    const res = await fetch(`${API.analysis}/quick-score/?lat=${lat}&lng=${lng}`);
+    const data = await res.json();
+    updateQuickScore(data);
+    updateNearbyPOIs(data.nearby_pois || []);
+  } catch (e) {}
+  document.getElementById('quickScoreCard').style.display = 'block';
+  document.getElementById('poiCard').style.display = 'block';
+  document.getElementById('actionButtons').style.display = 'flex';
 }
 
 // ============================================================
@@ -216,10 +290,11 @@ async function onMapClick(e) {
   document.getElementById('actionButtons').style.display = 'flex';
 }
 
-function updateLocationCard(lat, lng) {
+function updateLocationCard(lat, lng, name) {
   const card = document.getElementById('locationInfo');
   card.innerHTML = `
     <div class="location-detail">
+      ${name ? `<div class="location-row"><span class="location-label">地点</span><span class="location-value" style="color:#10b981">${name}</span></div>` : ''}
       <div class="location-row">
         <span class="location-label">纬度</span>
         <span class="location-value">${lat.toFixed(6)}</span>
@@ -727,13 +802,63 @@ async function sendMessage() {
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    addChatMessage('assistant', data.response || '抱歉，分析服务暂时不可用。');
-    if (data.tool_calls?.length) updateToolCallsLog(data.tool_calls);
-    setAgentStatus('idle');
+
+    if (data.task_id) {
+      // 异步模式：轮询任务状态
+      addChatMessage('assistant', '🔍 AI正在分析中，正在调用RAG知识库和知识图谱...');
+      pollChatTask(data.task_id);
+    } else if (data.response) {
+      addChatMessage('assistant', data.response);
+      if (data.tool_calls?.length) updateToolCallsLog(data.tool_calls);
+      setAgentStatus('idle');
+    } else {
+      addChatMessage('assistant', '抱歉，分析服务暂时不可用。');
+      setAgentStatus('idle');
+    }
   } catch (e) {
     addChatMessage('assistant', `❌ 请求失败：${e.message}`);
     setAgentStatus('error');
   }
+}
+
+async function pollChatTask(taskId) {
+  let attempts = 0;
+  const maxAttempts = 90;
+  const poll = async () => {
+    attempts++;
+    try {
+      const res = await fetch(`${API.analysis}/task/${taskId}/`);
+      const data = await res.json();
+      if (data.status === 'completed') {
+        setAgentStatus('idle');
+        // 移除"分析中"提示消息
+        const msgs = document.querySelectorAll('.assistant-message');
+        if (msgs.length > 0) {
+          const last = msgs[msgs.length - 1];
+          if (last.textContent.includes('正在分析中') || last.textContent.includes('正在调用RAG')) {
+            last.remove();
+          }
+        }
+        if (data.llm_reasoning) {
+          addChatMessage('assistant', data.llm_reasoning);
+          if (data.analysis_detail?.tool_calls?.length) {
+            updateToolCallsLog(data.analysis_detail.tool_calls);
+          }
+          if (data.rag_context) {
+            try { updateRAGResults(JSON.parse(data.rag_context)); } catch(e) {}
+          }
+        } else {
+          addChatMessage('assistant', '分析已完成，请查看结果。');
+        }
+        return;
+      }
+      if (attempts < maxAttempts) setTimeout(poll, 2000);
+      else { setAgentStatus('idle'); addChatMessage('assistant', '分析超时，请重试。'); }
+    } catch(e) {
+      if (attempts < maxAttempts) setTimeout(poll, 3000);
+    }
+  };
+  setTimeout(poll, 2000);
 }
 
 function sendQuickMsg(msg) {
@@ -842,19 +967,27 @@ function showKGNodeDetail(node) {
 // 生成报告
 // ============================================================
 async function triggerGenerateReport() {
-  if (!STATE.currentTaskId) {
-    showToast('请先进行AI深度分析', 'warning');
+  if (!STATE.selectedLat) {
+    showToast('请先在地图上选择位置', 'warning');
     return;
   }
 
   showLoading('正在生成选址报告...');
   try {
+    // 支持两种模式：有task_id用task_id，否则直接用坐标
+    const body = STATE.currentTaskId
+      ? { task_id: STATE.currentTaskId, session_id: STATE.sessionId }
+      : { lat: STATE.selectedLat, lng: STATE.selectedLng,
+          session_id: STATE.sessionId,
+          location_name: STATE.selectedAddress || `福州市 (${STATE.selectedLat.toFixed(4)}, ${STATE.selectedLng.toFixed(4)})` };
+
     const res = await fetch(`${API.reports}/generate/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task_id: STATE.currentTaskId, session_id: STATE.sessionId }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
+    if (data.error) { hideLoading(); showToast('报告生成失败：' + data.error, 'error'); return; }
     STATE.currentReportId = data.report_id;
     hideLoading();
     showToast('报告生成成功！', 'success');

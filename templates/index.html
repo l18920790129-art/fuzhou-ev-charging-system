@@ -65,8 +65,8 @@
           </div>
         </div>
 
-        <!-- 右侧信息面板 -->
-        <div class="info-panel">
+          <!-- 右侧信息面板 -->
+          <div class="info-panel">
           <!-- 选点信息 -->
           <div class="card" id="locationCard">
             <div class="card-header">
@@ -76,6 +76,26 @@
             </div>
             <div class="card-body" id="locationInfo">
               <p class="hint-text">点击地图选择充电桩候选位置<br>系统将自动避开水域、林地等禁止区域</p>
+            </div>
+            <!-- 快捷选点区域 -->
+            <div class="card-body" style="border-top:1px solid var(--border);padding-top:10px">
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">🏙️ 快捷选点（福州热门区域）</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
+                <button class="map-btn" style="font-size:10px;padding:4px 8px" onclick="quickSelectLocation(26.0756, 119.3034, '五四路商圈')">五四路</button>
+                <button class="map-btn" style="font-size:10px;padding:4px 8px" onclick="quickSelectLocation(26.0820, 119.2960, '鼓楼中心')">鼓楼区</button>
+                <button class="map-btn" style="font-size:10px;padding:4px 8px" onclick="quickSelectLocation(26.0612, 119.3089, '台江万达')">台江区</button>
+                <button class="map-btn" style="font-size:10px;padding:4px 8px" onclick="quickSelectLocation(26.0480, 119.2890, '仓山万象城')">仓山区</button>
+                <button class="map-btn" style="font-size:10px;padding:4px 8px" onclick="quickSelectLocation(26.0950, 119.3200, '晋安万宝')">晋安区</button>
+                <button class="map-btn" style="font-size:10px;padding:4px 8px" onclick="quickSelectLocation(26.0680, 119.3150, '福州南站')">南站片区</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">或手动输入坐标：</div>
+              <div style="display:flex;gap:4px">
+                <input id="manualLat" type="number" step="0.0001" placeholder="纬度 26.07" value="26.0756"
+                  style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-size:11px">
+                <input id="manualLng" type="number" step="0.0001" placeholder="经度 119.30" value="119.3034"
+                  style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-size:11px">
+                <button class="map-btn" style="font-size:10px;padding:5px 10px;white-space:nowrap" onclick="manualSelectLocation()">确认</button>
+              </div>
             </div>
           </div>
 
@@ -364,6 +384,6 @@
   <!-- ========== Toast通知 ========== -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="{% static 'js/app.js' %}"></script>
+  <script src="{% static 'js/app.js' %}?v=20260316d"></script>
 </body>
 </html>

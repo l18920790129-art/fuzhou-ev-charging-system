@@ -1,9 +1,10 @@
-*.pyc
 __pycache__/
-*.sqlite3
+*.pyc
+*.pyo
 .env
+*.sqlite3
 media/
-chroma_db/
+staticfiles/
 knowledge_base/chroma_db/
 *.log
 .DS_Store
