@@ -1,15 +1,15 @@
 [phases.setup]
-nixPkgs = ["python311", "gcc"]
+nixPkgs = ["python311", "python311Packages.pip", "gcc"]
 
 [phases.install]
-cmds = ["python3.11 -m pip install -r requirements.txt"]
+cmds = ["pip install -r requirements.txt"]
 
 [phases.build]
 cmds = [
-  "python3.11 manage.py collectstatic --noinput",
-  "python3.11 manage.py migrate --noinput || true",
-  "python3.11 data/init_fuzhou_data.py || true",
-  "python3.11 knowledge_base/build_knowledge_base.py || true"
+  "python manage.py collectstatic --noinput",
+  "python manage.py migrate --noinput || true",
+  "python data/init_fuzhou_data.py || true",
+  "python knowledge_base/build_knowledge_base.py || true"
 ]
 
 [start]
