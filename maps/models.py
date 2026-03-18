@@ -1,0 +1,142 @@
+"""
+地图相关数据模型
+"""
+from django.db import models
+
+
+class GeoEntity(models.Model):
+    ENTITY_TYPES = [
+        ('road', '道路'), ('building', '建筑'), ('park', '公园'),
+        ('water', '水域'), ('forest', '林地'), ('commercial', '商业区'),
+        ('residential', '居住区'), ('industrial', '工业区'),
+        ('charging_station', '充电站'), ('candidate', '候选点'),
+    ]
+    name = models.CharField(max_length=200, verbose_name='名称')
+    entity_type = models.CharField(max_length=50, choices=ENTITY_TYPES, verbose_name='类型')
+    latitude = models.FloatField(verbose_name='纬度')
+    longitude = models.FloatField(verbose_name='经度')
+    geometry_json = models.TextField(blank=True, null=True, verbose_name='几何数据JSON')
+    properties = models.JSONField(default=dict, blank=True, verbose_name='属性')
+    district = models.CharField(max_length=100, blank=True, verbose_name='所属区域')
+    address = models.CharField(max_length=500, blank=True, verbose_name='地址')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '地理实体'
+        verbose_name_plural = '地理实体'
+
+    def __str__(self):
+        return f"{self.name} ({self.get_entity_type_display()})"
+
+
+class POIData(models.Model):
+    POI_CATEGORIES = [
+        ('shopping_mall', '购物中心'), ('supermarket', '超市'),
+        ('office_building', '写字楼'), ('hospital', '医院'),
+        ('school', '学校'), ('hotel', '酒店'), ('restaurant', '餐饮'),
+        ('gas_station', '加油站'), ('parking_lot', '停车场'),
+        ('subway_station', '地铁站'), ('bus_station', '公交站'),
+        ('residential_area', '居住小区'), ('government', '政府机关'),
+        ('scenic_spot', '景区'), ('sports_center', '体育中心'),
+    ]
+    name = models.CharField(max_length=200, verbose_name='POI名称')
+    category = models.CharField(max_length=50, choices=POI_CATEGORIES, verbose_name='类别')
+    latitude = models.FloatField(verbose_name='纬度')
+    longitude = models.FloatField(verbose_name='经度')
+    address = models.CharField(max_length=500, blank=True, verbose_name='地址')
+    district = models.CharField(max_length=100, blank=True, verbose_name='所属区域')
+    influence_weight = models.FloatField(default=1.0, verbose_name='影响力权重')
+    daily_flow = models.IntegerField(default=0, verbose_name='日均人流量')
+    ev_demand_score = models.FloatField(default=0.0, verbose_name='充电需求评分')
+    properties = models.JSONField(default=dict, blank=True, verbose_name='附加属性')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'POI数据'
+        verbose_name_plural = 'POI数据'
+
+    def __str__(self):
+        return f"{self.name} ({self.get_category_display()})"
+
+
+class TrafficFlow(models.Model):
+    ROAD_LEVELS = [
+        ('expressway', '高速公路'), ('national', '国道'), ('provincial', '省道'),
+        ('urban_expressway', '城市快速路'), ('main_road', '主干道'), ('secondary_road', '次干道'),
+    ]
+    road_name = models.CharField(max_length=200, verbose_name='道路名称')
+    road_level = models.CharField(max_length=50, choices=ROAD_LEVELS, verbose_name='道路等级')
+    start_lat = models.FloatField(verbose_name='起点纬度')
+    start_lng = models.FloatField(verbose_name='起点经度')
+    end_lat = models.FloatField(verbose_name='终点纬度')
+    end_lng = models.FloatField(verbose_name='终点经度')
+    center_lat = models.FloatField(verbose_name='中心纬度')
+    center_lng = models.FloatField(verbose_name='中心经度')
+    daily_flow = models.IntegerField(default=0, verbose_name='日均流量(辆/天)')
+    peak_flow = models.IntegerField(default=0, verbose_name='高峰流量(辆/小时)')
+    ev_ratio = models.FloatField(default=0.05, verbose_name='新能源车占比')
+    heat_weight = models.FloatField(default=0.5, verbose_name='热力权重')
+    district = models.CharField(max_length=100, blank=True, verbose_name='所属区域')
+    path_json = models.TextField(blank=True, null=True, verbose_name='路径JSON')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '交通流量'
+        verbose_name_plural = '交通流量'
+
+    def __str__(self):
+        return f"{self.road_name} - {self.daily_flow}辆/天"
+
+
+class ExclusionZone(models.Model):
+    ZONE_TYPES = [
+        ('water', '水域'), ('forest', '林地'), ('protected', '保护区'),
+        ('military', '军事区'), ('slope', '坡地'),
+    ]
+    name = models.CharField(max_length=200, verbose_name='区域名称')
+    zone_type = models.CharField(max_length=50, choices=ZONE_TYPES, verbose_name='区域类型')
+    boundary_json = models.TextField(verbose_name='边界GeoJSON')
+    center_lat = models.FloatField(verbose_name='中心纬度')
+    center_lng = models.FloatField(verbose_name='中心经度')
+    radius_km = models.FloatField(default=0.5, verbose_name='影响半径(km)')
+    description = models.TextField(blank=True, verbose_name='描述')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '禁止区域'
+        verbose_name_plural = '禁止区域'
+
+    def __str__(self):
+        return f"{self.name} ({self.get_zone_type_display()})"
+
+
+class CandidateLocation(models.Model):
+    STATUS_CHOICES = [
+        ('candidate', '候选'), ('selected', '已选定'),
+        ('rejected', '已排除'), ('existing', '已有充电站'),
+    ]
+    name = models.CharField(max_length=200, verbose_name='位置名称')
+    latitude = models.FloatField(verbose_name='纬度')
+    longitude = models.FloatField(verbose_name='经度')
+    address = models.CharField(max_length=500, blank=True, verbose_name='地址')
+    district = models.CharField(max_length=100, blank=True, verbose_name='所属区域')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='candidate', verbose_name='状态')
+    total_score = models.FloatField(default=0.0, verbose_name='综合评分')
+    poi_score = models.FloatField(default=0.0, verbose_name='POI评分')
+    traffic_score = models.FloatField(default=0.0, verbose_name='交通流量评分')
+    accessibility_score = models.FloatField(default=0.0, verbose_name='可达性评分')
+    analysis_basis = models.JSONField(default=dict, blank=True, verbose_name='分析依据')
+    nearby_pois = models.JSONField(default=list, blank=True, verbose_name='周边POI')
+    nearby_traffic = models.JSONField(default=list, blank=True, verbose_name='周边流量')
+    llm_analysis = models.TextField(blank=True, verbose_name='LLM分析结果')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '候选选址'
+        verbose_name_plural = '候选选址'
+        ordering = ['-total_score']
+
+    def __str__(self):
+        return f"{self.name} (评分: {self.total_score:.2f})"

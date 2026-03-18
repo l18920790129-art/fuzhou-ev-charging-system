@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: fuzhou-ev-charging
+    env: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn fuzhou_ev_charging.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: fuzhou_ev_charging.settings
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: AMAP_API_KEY
+        value: 283b21e285a807bf7bda4cf43e838a26
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "*"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fuzhou-ev-db
+          property: connectionString
+      - key: CHROMA_PERSIST_DIR
+        value: "/opt/render/project/src/knowledge_base/chroma_db"
+
+databases:
+  - name: fuzhou-ev-db
+    plan: free
+    databaseName: fuzhou_ev
+    user: fuzhou_admin
